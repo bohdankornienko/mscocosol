@@ -1,1 +1,8 @@
 sets.yaml
+
+*.ignore
+
+*.ipynb_checkpoints
+*.idea
+
+__pycache__
