@@ -5,6 +5,7 @@ pycocotools
 plotly==4.5.0
 Pillow==7.0.0
 joblib==0.14.1
+scikit-image==0.16.2
 
 # Notebook related
 ipykernel
