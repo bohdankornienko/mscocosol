@@ -7,6 +7,10 @@ from PIL import Image
 from skimage.transform import resize
 
 
+from torchvision import transforms
+
+
+# TODO: here the DataSet parent maybe needed (check that if something will go wrong)
 class DataGen:
     def __init__(self, **kwargs):
         """
@@ -20,12 +24,17 @@ class DataGen:
                                          non occupied space will be filled with black pixels. The image will be placed
                                          to the top left corner. [TBA]
         """
+        self._sets = kwargs
         self._annotation_file = kwargs['annotation_file']
         self._categories = kwargs['categories']
         self._batch_size = kwargs['batch_size']
         self._imgs_dir = kwargs['imgs_dir']
         self._target_img_size = kwargs['target_img_size']
         self._resize_strategy = kwargs['resize_strategy']
+        self._channels_format = 'HWC'
+
+        if 'channels_format' in self._sets.keys():
+            self._channels_format = self._sets['channels_format']
 
         self._ann_coco = coco.COCO(annotation_file=self._annotation_file)
 
@@ -37,15 +46,26 @@ class DataGen:
         self._anns = self._ann_coco.loadAnns(self._ann_ids)
 
         ann_ids_for_imgs = dict()
+        self._img_ids = list()
         for item in self._anns:
             img_id = item['image_id']
+            self._img_ids.append(img_id)
 
             if img_id in ann_ids_for_imgs.keys():
                 ann_ids_for_imgs[img_id].append(item['id'])
             else:
                 ann_ids_for_imgs[img_id] = [item['id']]
 
-        self._ann_ids_for_imgs = ann_ids_for_imgs
+        self._ann_ids_for_imgs = ann_ids_for_imgs # maps img_id -> annotations
+
+        # TODO: figure this out later
+        self.transformer = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+    @property
+    def batch_size(self):
+        return self._batch_size
 
     def _prepare_masks_for_samples(self):
         self._masks = list()
@@ -85,10 +105,20 @@ class DataGen:
         for k, v in masks_for_class.items():
             tensor[:, :, self._cat_id_to_index[k]] = v
 
+        if self._channels_format == 'CHW':
+            tensor = np.rollaxis(tensor, 2)
+
         return tensor
 
+    def _img_tensor_for_img_id(self, img_id):
+        img = np.array(Image.open(os.path.join(self._imgs_dir, '{:0>12d}.jpg'.format(img_id))).convert("RGB"))
+        img = resize(img, self._target_img_size)
+
+        # TODO: add data preprocessing for such cases
+        img = img / 255.0
+        return img.astype(np.float32)
+
     def _prepare_imgs_for_samples(self):
-        # TODO: resize images
         self._imgs = list()
 
         for img_id in self._img_ids:
@@ -109,6 +139,19 @@ class DataGen:
         self._prepare_masks_for_samples()
 
         return self._imgs, self._masks
+
+    # TODO: Pytorch part: figure out duplications later
+    def __len__(self):
+        return len(self._img_ids)
+
+    def __getitem__(self, idx):
+        img_id = self._img_ids[idx]
+        mask = self._mask_tensor_for_img_id(img_id)
+        img = self._img_tensor_for_img_id(img_id)
+
+        img = self.transformer(img)
+
+        return [img, mask]
 
 
 def make_datagen(**kwargs):

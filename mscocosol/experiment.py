@@ -8,7 +8,7 @@ from mscocosol.utils.datagen_factory import datagen_factory
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='The subsystem for running Data Science Experiments.')
 
-    parser.add_argument('--sets', help="The path to settings file for the experiment.")
+    parser.add_argument('--sets', required=True, help="The path to settings file for the experiment.")
 
     args = parser.parse_args()
 
