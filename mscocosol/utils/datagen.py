@@ -111,3 +111,6 @@ class DataGen:
         return self._imgs, self._masks
 
 
+def make_datagen(**kwargs):
+    return DataGen(**kwargs)
+
