@@ -5,8 +5,6 @@ import numpy as np
 from pycocotools import coco
 from PIL import Image
 from skimage.transform import resize
-
-
 from torchvision import transforms
 
 
@@ -46,10 +44,8 @@ class DataGen:
         self._anns = self._ann_coco.loadAnns(self._ann_ids)
 
         ann_ids_for_imgs = dict()
-        self._img_ids = list()
         for item in self._anns:
             img_id = item['image_id']
-            self._img_ids.append(img_id)
 
             if img_id in ann_ids_for_imgs.keys():
                 ann_ids_for_imgs[img_id].append(item['id'])
@@ -57,8 +53,10 @@ class DataGen:
                 ann_ids_for_imgs[img_id] = [item['id']]
 
         self._ann_ids_for_imgs = ann_ids_for_imgs # maps img_id -> annotations
+        self._img_ids = list(self._ann_ids_for_imgs.keys())
 
-        # TODO: figure this out later
+        # TODO: figure this out later -> move from here to approach.
+        # The approach has to transorm the image into required format
         self.transformer = transforms.Compose([
             transforms.ToTensor(),
         ])
@@ -66,15 +64,6 @@ class DataGen:
     @property
     def batch_size(self):
         return self._batch_size
-
-    def _prepare_masks_for_samples(self):
-        self._masks = list()
-
-        for img_id in self._img_ids:
-            tensor = self._mask_tensor_for_img_id(img_id)
-            self._masks.append(tensor)
-
-        self._masks = np.stack(self._masks)
 
     def _mask_tensor_for_img_id(self, img_id):
         curr_img_ann_ids = self._ann_ids_for_imgs[img_id]
@@ -90,12 +79,15 @@ class DataGen:
             else:
                 masks_for_class[category_id].append(ann)
 
+        masks_original_sizes = dict()
         for k in masks_for_class.keys():
             item = masks_for_class[k]
             masks = [self._ann_coco.annToMask(ann) for ann in item]
 
             mask = np.logical_or.reduce(masks)
-            mask = resize(mask, self._target_img_size)
+            mask = mask.astype(np.uint8) * 255
+            masks_original_sizes[k] = np.sum(mask)
+            mask = resize(mask, self._target_img_size, preserve_range=True)
             mask = np.array(mask > 0, np.float32)
             masks_for_class[k] = mask
 
@@ -108,16 +100,45 @@ class DataGen:
         if self._channels_format == 'CHW':
             tensor = np.rollaxis(tensor, 2)
 
+        self._masks_for_class = masks_for_class
+        self._masks_original_sizes = masks_original_sizes
+
         return tensor
 
     def _img_tensor_for_img_id(self, img_id):
         img = np.array(Image.open(os.path.join(self._imgs_dir, '{:0>12d}.jpg'.format(img_id))).convert("RGB"))
+        # TODO: resize is converting the image into range [0, 1]
         img = resize(img, self._target_img_size)
 
         # TODO: add data preprocessing for such cases
-        img = img / 255.0
+        # img = img / 255.0
         return img.astype(np.float32)
 
+    # TODO: Pytorch part: figure out duplications later
+    def __len__(self):
+        return len(self._img_ids)
+
+    def __getitem__(self, idx):
+        img_id = self._img_ids[idx]
+        mask = self._mask_tensor_for_img_id(img_id)
+        img = self._img_tensor_for_img_id(img_id)
+
+        img = self.transformer(img)
+
+        return [img, mask]
+
+    def get_summary(self):
+        return 'Number of images: {}'.format(len(self._img_ids))
+
+    '''
+    def _prepare_masks_for_samples(self):
+        self._masks = list()
+
+        for img_id in self._img_ids:
+            tensor = self._mask_tensor_for_img_id(img_id)
+            self._masks.append(tensor)
+
+        self._masks = np.stack(self._masks)
     def _prepare_imgs_for_samples(self):
         self._imgs = list()
 
@@ -139,19 +160,7 @@ class DataGen:
         self._prepare_masks_for_samples()
 
         return self._imgs, self._masks
-
-    # TODO: Pytorch part: figure out duplications later
-    def __len__(self):
-        return len(self._img_ids)
-
-    def __getitem__(self, idx):
-        img_id = self._img_ids[idx]
-        mask = self._mask_tensor_for_img_id(img_id)
-        img = self._img_tensor_for_img_id(img_id)
-
-        img = self.transformer(img)
-
-        return [img, mask]
+    '''
 
 
 def make_datagen(**kwargs):

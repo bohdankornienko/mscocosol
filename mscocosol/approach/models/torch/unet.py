@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 
 
-def double_conv(in_channels, out_channels):
+def double_conv(in_channels, out_channels, padding=1):
     return nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, 3, padding=1),
+        nn.Conv2d(in_channels, out_channels, 3),
         nn.ReLU(inplace=True),
-        nn.Conv2d(out_channels, out_channels, 3, padding=1),
+        nn.Conv2d(out_channels, out_channels, 3),
         nn.ReLU(inplace=True)
     )
 
@@ -58,3 +58,7 @@ class UNet(nn.Module):
         out = self.conv_last(x)
 
         return out
+
+
+def make_unet(variant, n_class):
+    return UNet(n_class)

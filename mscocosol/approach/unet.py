@@ -1,15 +1,16 @@
+import os
 import torch
+import logging
 
 import torch.optim as optim
 import torch.nn.functional as F
 
 from torch.optim import lr_scheduler
-from torchsummary import summary
 from collections import defaultdict
 
-from mscocosol.approach.models.torch.unet import UNet as UNetModel
+from mscocosol.approach.models.torch.unet import make_unet
+from mscocosol.utils.general import model_summary_as_string
 
-import logging
 
 def dice_loss(pred, target, smooth=1.):
     pred = pred.contiguous()
@@ -30,51 +31,57 @@ def calc_loss(pred, target, metrics, bce_weight=0.5):
 
     loss = bce * bce_weight + dice * (1 - bce_weight)
 
-    metrics['bce'] += bce.data.cpu().numpy() * target.size(0)
-    metrics['dice'] += dice.data.cpu().numpy() * target.size(0)
-    metrics['loss'] += loss.data.cpu().numpy() * target.size(0)
+    metrics['bce'] = bce.data.cpu().numpy() * target.size(0)
+    metrics['dice'] = dice.data.cpu().numpy() * target.size(0)
+    metrics['loss'] = loss.data.cpu().numpy() * target.size(0)
 
     return loss
 
 
 class UNetTorch:
     def __init__(self, **kwargs):
-        # TODO: set mode from arugments
+        # TODO: set mode from arguments
         # TODO: create parent abstract class for approach
 
         self._sets = kwargs
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging.info('Computation device: {}'.format(self._device))
 
-        self._model = UNetModel(self._sets['classes_num'])
+        # TODO: should I keep this around?
+        self._model = make_unet(self._sets['model_variant'], self._sets['classes_num'])
         self._model = self._model.to(self._device)
+
+        self._metrics_train = defaultdict(float)
+        self._metrics_val = defaultdict(float)
+        self._metrics = self._metrics_train
 
         # TODO: control it with arguments, maybe ?
         # TODO: input size for summary should match with input data
         # TODO: should I leave print?
-        print(summary(self._model, input_size=(3, 192, 192)))
+        logging.info(model_summary_as_string(self._model))
 
-        self._model = UNetModel(self._sets['classes_num']).to(self._device)
+        self._model = make_unet(self._sets['model_variant'], self._sets['classes_num']).to(self._device)
         self._model = self._model.to(self._device)
         logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
 
         # TODO: control input parameters with sets
-        self._optimizer = optim.Adam(self._model.parameters(), lr=1e-4)
-        self._scheduler = lr_scheduler.StepLR(self._optimizer, step_size=25, gamma=0.1)
+        self._optimizer = optim.Adam(self._model.parameters(), lr=self._sets['optimizer']['learning_rate'])
+        self._scheduler = lr_scheduler.StepLR(self._optimizer, step_size=self._sets['optimizer']['lr_scheduler_step_size'], gamma=0.1)
 
-        self._metrics = defaultdict(float)
+        self.set_mode(kwargs['mode'])
 
-        self._mode = 'train'
         self._epoch_samples = 0
         self._last_evaluations = None
 
+        if self._mode == 'train':
+            self._checkpoints_dir = os.path.join(self._sets['this_exp_dir'], 'checkpoints')
+            if not os.path.exists(self._checkpoints_dir):
+                os.mkdir(self._checkpoints_dir)
+
     def train_on_batch(self, x, y):
+        # TODO: do traonsfrom to torch.tenosor here insetad of datagetnerator
         inputs = x.to(self._device)
         labels = y.to(self._device)
-        '''
-        inputs = x.to(self._device, dtype=torch.double)
-        labels = y.to(self._device, dtype=torch.double)
-        '''
 
         # zero the parameter gradients
         self._optimizer.zero_grad()
@@ -93,17 +100,17 @@ class UNetTorch:
         # statistics
         self._epoch_samples += inputs.size(0)
 
-        readings = {'mode': self._mode, 'epoch_samples': self._epoch_samples}
-        if self._mode == 'train':
-            readings['loss'] = loss
+        readings = {'mode': self._mode, 'epoch_samples': self._epoch_samples, 'metrics': self._metrics}
 
         return readings
 
     def eval_on_batch(self, x, y):
-        y_pred = self.predict(x)
+        pass
 
     def predict(self, x):
-        pass
+        self._y_pred = self._model(x.to(self._device))
+        self._y_pred_s = F.sigmoid(self._y_pred)
+        return self._y_pred_s > 0.5
 
     def set_mode(self, mode):
         """
@@ -111,7 +118,15 @@ class UNetTorch:
         :param mode: train for training; val, test, inference for prediction mode
         """
 
+        if mode == 'train':
+            self._mode = 'train'
+            self._metrics = self._metrics_train
+        else:
+            self._mode = 'inference'
+            self._metrics = self._metrics_val
+
         self._epoch_samples = 0
+
         if mode == 'train':
             self._scheduler.step()
             for param_group in self._optimizer.param_groups:
@@ -122,14 +137,27 @@ class UNetTorch:
             self._model.eval()
 
     def save_checkpoint(self, epoch, iteration=None):
-        pass
+        model_file_name = '{:0>5d}'.format(epoch)
+        if iteration is not None:
+            model_file_name += '_{:0>10d}'.format(iteration)
+        model_file_name += '.pt'
+
+        torch.save(self._model.state_dict(), os.path.join(self._checkpoints_dir, model_file_name))
 
         # TODO: mark checkpoint as best
+        # TODO: saving strategies
+        #  all - saves all checkpoint,
+        #  better - saves checkpoint only if readings are better than previous,
+        #  best - similar to better but removes all previous checkpoints
+
+    def load_model(self, path):
+        self._model.load_state_dict(torch.load(path))
 
     def _calc_metrics(self):
         outputs = ['\n']
         for k in self._metrics.keys():
-            outputs.append("{}: {:4f}".format(k, self._metrics[k] / self._epoch_samples))
+            # outputs.append("{}: {:4f}".format(k, self._metrics[k] / self._epoch_samples))
+            outputs.append("{}: {:4f}".format(k, self._metrics[k]))
 
         metrics = "{}: {}".format(self._mode, ", ".join(outputs))
         metrics += '\n'
