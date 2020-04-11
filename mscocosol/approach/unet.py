@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from torch.optim import lr_scheduler
 from collections import defaultdict
 
+import numpy as np
+
 from mscocosol.approach.models.torch.unet import make_unet
 from mscocosol.utils.general import model_summary_as_string
 
@@ -164,13 +166,43 @@ class UNetTorch:
 
         return metrics
 
-    def evaluate(self):
+    def evaluate(self, data_gen):
+        precisions = list()
+        recalls = list()
 
+        for x, y_true in data_gen:
+            y_pred = self.predict(x)
+
+            # TODO: do computations directly on GPU
+            y_pred = y_pred.detach().cpu().numpy()
+            y_true = y_true.detach().cpu().numpy()
+
+            TP = np.logical_and(y_true, y_pred)
+            preds = np.logical_or(y_true, y_pred)
+
+            R = np.sum(TP, axis=(1, 2, 3)) / np.sum(y_true, axis=(1, 2, 3))
+            P = np.sum(TP, axis=(1, 2, 3)) / np.sum(preds, axis=(1, 2, 3))
+
+            precisions.append(np.mean(P))
+            recalls.append(np.mean(R))
+
+        mAr = np.mean(recalls)
+        mAp = np.mean(precisions)
+
+        '''
+        TODO: add losses and stuff
         self._metrics = self._calc_metrics()
 
         # TODO: evaluate the model
         # TODO: save as "last evaluation results"
-        self._last_evaluations = self._metrics
+        '''
+        self._last_evaluations = None
+
+        evaluations = dict()
+        evaluations['map'] = float(mAp)
+        evaluations['mar'] = float(mAr)
+
+        return evaluations
 
     def get_last_evaluation(self):
         return self._last_evaluations
@@ -178,4 +210,3 @@ class UNetTorch:
 
 def make_unet_torch(**kwargs):
     return UNetTorch(**kwargs)
-
