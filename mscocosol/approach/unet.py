@@ -46,6 +46,7 @@ class UNetTorch:
         # TODO: create parent abstract class for approach
 
         self._sets = kwargs
+        # TODO: set it with config
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging.info('Computation device: {}'.format(self._device))
 
@@ -65,6 +66,7 @@ class UNetTorch:
         self._model = make_unet(self._sets['model_variant'], self._sets['classes_num']).to(self._device)
         self._model = self._model.to(self._device)
         logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
+        # TODO: check if moving model to cpu and\or calling 'del' on model will help save GPU memory
 
         # TODO: control input parameters with sets
         self._optimizer = optim.Adam(self._model.parameters(), lr=self._sets['optimizer']['learning_rate'])
@@ -88,8 +90,6 @@ class UNetTorch:
         # zero the parameter gradients
         self._optimizer.zero_grad()
 
-        # forward
-        # track history if only in train
         with torch.set_grad_enabled(self._mode == 'train'):
             outputs = self._model(inputs)
             loss = calc_loss(outputs, labels, self._metrics)
@@ -98,6 +98,7 @@ class UNetTorch:
             if self._mode == 'train':
                 loss.backward()
                 self._optimizer.step()
+                self._scheduler.step()
 
         # statistics
         self._epoch_samples += inputs.size(0)
@@ -130,7 +131,6 @@ class UNetTorch:
         self._epoch_samples = 0
 
         if mode == 'train':
-            self._scheduler.step()
             for param_group in self._optimizer.param_groups:
                 print("LR", param_group['lr'])
 
@@ -167,6 +167,8 @@ class UNetTorch:
         return metrics
 
     def evaluate(self, data_gen):
+        # TODO: for some reason torch wants to allocate new memory chunk for evaluation process
+        #       look into forcing torch use same memory storage for tran\eval
         precisions = list()
         recalls = list()
 
@@ -189,18 +191,13 @@ class UNetTorch:
         mAr = np.mean(recalls)
         mAp = np.mean(precisions)
 
-        '''
-        TODO: add losses and stuff
-        self._metrics = self._calc_metrics()
-
-        # TODO: evaluate the model
-        # TODO: save as "last evaluation results"
-        '''
+        # TODO: work it out
         self._last_evaluations = None
 
         evaluations = dict()
         evaluations['map'] = float(mAp)
         evaluations['mar'] = float(mAr)
+        # TODO: add losses and stuff
 
         return evaluations
 
