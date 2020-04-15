@@ -60,5 +60,5 @@ class UNet(nn.Module):
         return out
 
 
-def make_unet(variant, n_class):
-    return UNet(n_class)
+def make_unet(**kwargs):
+    return UNet(**kwargs)

@@ -10,8 +10,8 @@ from collections import defaultdict
 
 import numpy as np
 
-from mscocosol.approach.models.torch.unet import make_unet
 from mscocosol.utils.general import model_summary_as_string
+from mscocosol.approach.models.model_factory import model_factory
 
 
 def dice_loss(pred, target, smooth=1.):
@@ -40,9 +40,8 @@ def calc_loss(pred, target, metrics, bce_weight=0.5):
     return loss
 
 
-class UNetTorch:
+class TorchBasedApproach:
     def __init__(self, **kwargs):
-        # TODO: set mode from arguments
         # TODO: create parent abstract class for approach
 
         self._sets = kwargs
@@ -50,9 +49,9 @@ class UNetTorch:
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         logging.info('Computation device: {}'.format(self._device))
 
-        # TODO: should I keep this around?
-        self._model = make_unet(self._sets['model_variant'], self._sets['classes_num'])
+        self._model = model_factory.create(name=self._sets['model_variant'], n_class=self._sets['classes_num'])
         self._model = self._model.to(self._device)
+        logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
 
         self._metrics_train = defaultdict(float)
         self._metrics_val = defaultdict(float)
@@ -61,18 +60,19 @@ class UNetTorch:
         # TODO: control it with arguments, maybe ?
         # TODO: input size for summary should match with input data
         # TODO: should I leave print?
-        logging.info(model_summary_as_string(self._model))
-
-        self._model = make_unet(self._sets['model_variant'], self._sets['classes_num']).to(self._device)
-        self._model = self._model.to(self._device)
-        logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
-        # TODO: check if moving model to cpu and\or calling 'del' on model will help save GPU memory
+        logging.info(model_summary_as_string(
+            model=self._model,
+            shape=tuple([3] + self._sets['target_img_size']),
+            device=str(self._device))
+        )
 
         # TODO: control input parameters with sets
         self._optimizer = optim.Adam(self._model.parameters(), lr=self._sets['optimizer']['learning_rate'])
-        self._scheduler = lr_scheduler.StepLR(self._optimizer, step_size=self._sets['optimizer']['lr_scheduler_step_size'], gamma=0.1)
+        self._scheduler = lr_scheduler.StepLR(self._optimizer,
+                                              step_size=self._sets['optimizer']['lr_scheduler_step_size'],
+                                              gamma=self._sets['optimizer']['lr_scheduler_gamma'])
 
-        self.set_mode(kwargs['mode'])
+        self.set_mode(self._sets['mode'])
 
         self._epoch_samples = 0
         self._last_evaluations = None
@@ -81,6 +81,9 @@ class UNetTorch:
             self._checkpoints_dir = os.path.join(self._sets['this_exp_dir'], 'checkpoints')
             if not os.path.exists(self._checkpoints_dir):
                 os.mkdir(self._checkpoints_dir)
+
+        if 'use_weights' in self._sets.keys() and self._sets['use_weights'] is not None:
+            self.load_model(self._sets['use_weights'])
 
     def train_on_batch(self, x, y):
         # TODO: do traonsfrom to torch.tenosor here insetad of datagetnerator
@@ -111,8 +114,11 @@ class UNetTorch:
         pass
 
     def predict(self, x):
-        self._y_pred = self._model(x.to(self._device))
-        self._y_pred_s = F.sigmoid(self._y_pred)
+        with torch.no_grad():
+            inputs = x.to(self._device)
+            self._y_pred = self._model(inputs)
+            self._y_pred_s = F.sigmoid(self._y_pred)
+
         return self._y_pred_s > 0.5
 
     def set_mode(self, mode):
@@ -179,6 +185,9 @@ class UNetTorch:
             y_pred = y_pred.detach().cpu().numpy()
             y_true = y_true.detach().cpu().numpy()
 
+            y_pred = y_pred[:, :self._sets['classes_num'] - self._sets['add_background'], :, :]
+            y_true = y_true[:, :self._sets['classes_num'] - self._sets['add_background'], :, :]
+
             TP = np.logical_and(y_true, y_pred)
             preds = np.logical_or(y_true, y_pred)
 
@@ -188,15 +197,17 @@ class UNetTorch:
             precisions.append(np.mean(P))
             recalls.append(np.mean(R))
 
-        mAr = np.mean(recalls)
-        mAp = np.mean(precisions)
+        eval_mar = np.mean(recalls)
+        eval_map = np.mean(precisions)
+        eval_f1 = 2 * ((eval_map * eval_mar) / (eval_map + eval_mar))
 
         # TODO: work it out
         self._last_evaluations = None
 
         evaluations = dict()
-        evaluations['map'] = float(mAp)
-        evaluations['mar'] = float(mAr)
+        evaluations['map'] = float(eval_map)
+        evaluations['mar'] = float(eval_mar)
+        evaluations['F1'] = float(eval_f1)
         # TODO: add losses and stuff
 
         return evaluations
@@ -205,5 +216,5 @@ class UNetTorch:
         return self._last_evaluations
 
 
-def make_unet_torch(**kwargs):
-    return UNetTorch(**kwargs)
+def make_torch_based_approach(**kwargs):
+    return TorchBasedApproach(**kwargs)

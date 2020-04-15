@@ -1,7 +1,7 @@
 from mscocosol.dsapproach.object_factory import ObjectFactory
 
-from mscocosol.approach.unet import make_unet_torch
+from mscocosol.approach.torch_based import make_torch_based_approach
 
 approach_factory = ObjectFactory()
 
-approach_factory.register_builder("unet_torch", make_unet_torch)
+approach_factory.register_builder("torch_based", make_torch_based_approach)

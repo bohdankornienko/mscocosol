@@ -29,10 +29,12 @@ class DataGen:
         self._imgs_dir = kwargs['imgs_dir']
         self._target_img_size = kwargs['target_img_size']
         self._resize_strategy = kwargs['resize_strategy']
-        self._channels_format = 'HWC'
 
+        self._channels_format = 'HWC'
         if 'channels_format' in self._sets.keys():
             self._channels_format = self._sets['channels_format']
+
+        self._add_background = self._sets['add_background']
 
         self._ann_coco = coco.COCO(annotation_file=self._annotation_file)
 
@@ -91,11 +93,14 @@ class DataGen:
             mask = np.array(mask > 0, np.float32)
             masks_for_class[k] = mask
 
-        tensor_shape = (self._target_img_size[0], self._target_img_size[1], len(self._cat_ids))
+        tensor_shape = (self._target_img_size[0], self._target_img_size[1], len(self._cat_ids) + self._add_background)
         tensor = np.zeros(tensor_shape, np.float32)
 
         for k, v in masks_for_class.items():
             tensor[:, :, self._cat_id_to_index[k]] = v
+
+        if self._sets['add_background']:
+            tensor[:, :, len(self._cat_id_to_index)] = np.logical_not(np.logical_or.reduce(tensor, axis=2))
 
         if self._channels_format == 'CHW':
             tensor = np.rollaxis(tensor, 2)
