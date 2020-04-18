@@ -57,11 +57,20 @@ class DataGen:
         self._ann_ids_for_imgs = ann_ids_for_imgs # maps img_id -> annotations
         self._img_ids = list(self._ann_ids_for_imgs.keys())
 
-        # TODO: figure this out later -> move from here to approach.
-        # The approach has to transorm the image into required format
-        self.transformer = transforms.Compose([
-            transforms.ToTensor(),
-        ])
+        # ---------------------------------------------------------
+        # TODO: figure this out later -> move from here to approach
+        # This whole section has to be figured out later
+        # The approach has to transform the image into required format
+
+        transformations = [transforms.ToTensor()]
+
+        if 'normalize_input' in self._sets.keys():
+            if self._sets['normalize_input']['type'] == 'std_mean':
+                normalize = transforms.Normalize(mean=self._sets['normalize_input']['mean'],
+                                                 std=self._sets['normalize_input']['std'])
+                transformations.append(normalize)
+
+        self.transformer = transforms.Compose(transformations)
 
     @property
     def batch_size(self):

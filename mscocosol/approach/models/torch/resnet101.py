@@ -8,19 +8,19 @@ class FCN(nn.Module):
     def __init__(self, n_class):
         super().__init__()
 
-        self.base_model = models.resnet18(pretrained=True)
+        self.base_model = models.resnet101(pretrained=True)
 
         layers = list(self.base_model.children())
-        self.layer1 = nn.Sequential(*layers[:5])  # size=(N, 64, x.H/2, x.W/2)
+        self.layer1 = nn.Sequential(*layers[:5])
         self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        self.layer2 = layers[5]  # size=(N, 128, x.H/4, x.W/4)
+        self.layer2 = layers[5]
         self.upsample2 = nn.Upsample(scale_factor=8, mode='bilinear')
-        self.layer3 = layers[6]  # size=(N, 256, x.H/8, x.W/8)
+        self.layer3 = layers[6]
         self.upsample3 = nn.Upsample(scale_factor=16, mode='bilinear')
-        self.layer4 = layers[7]  # size=(N, 512, x.H/16, x.W/16)
+        self.layer4 = layers[7]
         self.upsample4 = nn.Upsample(scale_factor=32, mode='bilinear')
 
-        self.conv1k = nn.Conv2d(64 + 128 + 256 + 512, n_class, 1)
+        self.conv_final = nn.Conv2d(256 + 512 + 1024 + 2048, n_class, 1)
 
     def forward(self, x):
         x = self.layer1(x)
@@ -33,12 +33,12 @@ class FCN(nn.Module):
         up4 = self.upsample4(x)
 
         merge = torch.cat([up1, up2, up3, up4], dim=1)
-        merge = self.conv1k(merge)
+        merge = self.conv_final(merge)
 
         out = merge
 
         return out
 
 
-def make_resnet18(**kwargs):
+def make_resnet101(**kwargs):
     return FCN(**kwargs)
