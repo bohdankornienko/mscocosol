@@ -121,7 +121,7 @@ class DataGen:
 
     def _img_tensor_for_img_id(self, img_id):
         img = np.array(Image.open(os.path.join(self._imgs_dir, '{:0>12d}.jpg'.format(img_id))).convert("RGB"))
-        # TODO: resize is converting the image into range [0, 1]
+        # TODO: resize is converting the image into range [0, 1]: should I let him do that?
         img = resize(img, self._target_img_size)
 
         # TODO: add data preprocessing for such cases
@@ -136,6 +136,7 @@ class DataGen:
         img_id = self._img_ids[idx]
         mask = self._mask_tensor_for_img_id(img_id)
         img = self._img_tensor_for_img_id(img_id)
+        self.original_image = np.copy(img)
 
         img = self.transformer(img)
 
@@ -143,38 +144,6 @@ class DataGen:
 
     def get_summary(self):
         return 'Number of images: {}'.format(len(self._img_ids))
-
-    '''
-    def _prepare_masks_for_samples(self):
-        self._masks = list()
-
-        for img_id in self._img_ids:
-            tensor = self._mask_tensor_for_img_id(img_id)
-            self._masks.append(tensor)
-
-        self._masks = np.stack(self._masks)
-    def _prepare_imgs_for_samples(self):
-        self._imgs = list()
-
-        for img_id in self._img_ids:
-            img = np.array(Image.open(os.path.join(self._imgs_dir, '{:0>12d}.jpg'.format(img_id))).convert("RGB"))
-            img = resize(img, self._target_img_size)
-            self._imgs.append(img)
-
-        self._imgs = np.stack(self._imgs)
-
-    def next_batch(self):
-        """
-        Generate minibatch for next training iteration. The generation is performed randomly.
-        :return: Tuple (imgs, masks)
-        """
-        self._img_ids = np.random.choice(list(self._ann_ids_for_imgs.keys()), self._batch_size)
-
-        self._prepare_imgs_for_samples()
-        self._prepare_masks_for_samples()
-
-        return self._imgs, self._masks
-    '''
 
 
 def make_datagen(**kwargs):
