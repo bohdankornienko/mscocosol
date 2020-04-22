@@ -51,6 +51,7 @@ class TorchBasedApproach:
 
         self._model = model_factory.create(name=self._sets['model_variant'], n_class=self._sets['classes_num'])
         self._model = self._model.to(self._device)
+        self._model.children()
         logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
 
         self._metrics_train = defaultdict(float)
@@ -86,7 +87,7 @@ class TorchBasedApproach:
             self.load_model(self._sets['use_weights'])
 
     def train_on_batch(self, x, y):
-        # TODO: do traonsfrom to torch.tenosor here insetad of datagetnerator
+        # TODO: do transform to torch.tensor here instead of data generator
         inputs = x.to(self._device)
         labels = y.to(self._device)
 
@@ -173,10 +174,10 @@ class TorchBasedApproach:
         return metrics
 
     def evaluate(self, data_gen):
-        # TODO: for some reason torch wants to allocate new memory chunk for evaluation process
-        #       look into forcing torch use same memory storage for tran\eval
+        # TODO: do per class evaluation, then calculate map as average over all classes
         precisions = list()
         recalls = list()
+        ious = list()
 
         for x, y_true in data_gen:
             y_pred = self.predict(x)
@@ -191,15 +192,22 @@ class TorchBasedApproach:
             TP = np.logical_and(y_true, y_pred)
             preds = np.logical_or(y_true, y_pred)
 
+            intersection = TP
+            union = preds
+
+            IoU = np.sum(intersection, axis=(1, 2, 3)) / np.sum(union, axis=(1, 2, 3))
+
             R = np.sum(TP, axis=(1, 2, 3)) / np.sum(y_true, axis=(1, 2, 3))
             P = np.sum(TP, axis=(1, 2, 3)) / np.sum(preds, axis=(1, 2, 3))
 
             precisions.append(np.mean(P))
             recalls.append(np.mean(R))
+            ious.append(IoU)
 
         eval_mar = np.mean(recalls)
         eval_map = np.mean(precisions)
         eval_f1 = 2 * ((eval_map * eval_mar) / (eval_map + eval_mar))
+        average_IoU = np.mean(ious)
 
         # TODO: work it out
         self._last_evaluations = None
@@ -208,6 +216,8 @@ class TorchBasedApproach:
         evaluations['map'] = float(eval_map)
         evaluations['mar'] = float(eval_mar)
         evaluations['F1'] = float(eval_f1)
+        evaluations['average_IoU'] = float(average_IoU)
+
         # TODO: add losses and stuff
 
         return evaluations
