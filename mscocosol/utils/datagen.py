@@ -7,6 +7,8 @@ from PIL import Image
 from skimage.transform import resize
 from torchvision import transforms
 
+from mscocosol.utils.general import squash_mask
+
 
 # TODO: here the DataSet parent maybe needed (check that if something will go wrong)
 class DataGen:
@@ -111,11 +113,17 @@ class DataGen:
         if self._sets['add_background']:
             tensor[:, :, len(self._cat_id_to_index)] = np.logical_not(np.logical_or.reduce(tensor, axis=2))
 
-        if self._channels_format == 'CHW':
+        self._mask_before_roll = tensor
+        if self._sets['squash_mask']:
+            tensor = squash_mask(tensor)
+
+        if (not self._sets['squash_mask']) and self._channels_format == 'CHW':
             tensor = np.rollaxis(tensor, 2)
 
         self._masks_for_class = masks_for_class
         self._masks_original_sizes = masks_original_sizes
+
+        self._original_mask = tensor
 
         return tensor
 

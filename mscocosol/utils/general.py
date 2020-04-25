@@ -69,7 +69,7 @@ def make_dot(var, params):
     seen = set()
 
     def size_to_str(size):
-        return '(' + (', ').join(['%d' % v for v in size]) + ')'
+        return '(' + ', '.join(['%d' % v for v in size]) + ')'
 
     def add_nodes(var):
         if var not in seen:
@@ -94,3 +94,33 @@ def make_dot(var, params):
 
     add_nodes(var.grad_fn)
     return dot
+
+
+def squash_mask(mask):
+    """
+    Takes input multichannel mask and converts it into single channel mask where each pixel takes value
+    corresponding to its class
+    :param mask: Segmentation mask with the shape (H, W, C) where C is the number of classes.
+    :return: Squashed mask.
+    """
+    squashed_mask = np.zeros(mask.shape[:2], dtype=np.long)
+
+    num_classes = mask.shape[2]
+    for c in reversed(range(num_classes)):
+        squashed_mask[mask[:, :, c] == 1] = c
+
+    return squashed_mask
+
+
+def blowup_mask_torch(pred, n_class, mask_shape=(192, 192)):
+    batch_size = pred.shape[0]
+    res_batch = torch.zeros(batch_size, n_class, mask_shape[0], mask_shape[1], dtype=torch.long)
+    res_batch.to(pred.device)
+
+    for b in range(batch_size):
+        res_mask = torch.zeros(n_class, mask_shape[0], mask_shape[1], dtype=torch.long)
+        for i in range(n_class):
+            res_mask[i][pred[b] == i] = 1
+        res_batch[b] = res_mask
+
+    return res_batch

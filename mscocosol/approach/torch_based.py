@@ -10,7 +10,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from mscocosol.utils.general import model_summary_as_string
+from mscocosol.utils.general import model_summary_as_string, blowup_mask_torch
 from mscocosol.approach.models.model_factory import model_factory
 
 
@@ -40,6 +40,15 @@ def calc_loss(pred, target, metrics, bce_weight=0.5):
     return loss
 
 
+def calc_loss2(y_pred, y_true):
+    metrics = dict()
+
+    loss = calc_loss(y_pred, y_true, metrics)
+
+    return loss, metrics
+
+
+# TODO: After the multichannel segmentation code is taken over - this class is the candidate to go to dsapproach
 class TorchBasedApproach:
     def __init__(self, **kwargs):
         # TODO: create parent abstract class for approach
@@ -51,7 +60,6 @@ class TorchBasedApproach:
 
         self._model = model_factory.create(name=self._sets['model_variant'], n_class=self._sets['classes_num'])
         self._model = self._model.to(self._device)
-        self._model.children()
         logging.info('Check if model is on cuda: {}'.format(next(self._model.parameters()).is_cuda))
 
         self._metrics_train = defaultdict(float)
@@ -86,6 +94,16 @@ class TorchBasedApproach:
         if 'use_weights' in self._sets.keys() and self._sets['use_weights'] is not None:
             self.load_model(self._sets['use_weights'])
 
+    def _calc_loss(self, y_pred, y_true):
+        """
+        Calculate loss value and torch op
+
+        :return: tuple (torch.loss, readings)
+        """
+
+        loss, readings = calc_loss2(y_pred, y_true)
+        return loss, readings
+
     def train_on_batch(self, x, y):
         # TODO: do transform to torch.tensor here instead of data generator
         inputs = x.to(self._device)
@@ -96,7 +114,8 @@ class TorchBasedApproach:
 
         with torch.set_grad_enabled(self._mode == 'train'):
             outputs = self._model(inputs)
-            loss = calc_loss(outputs, labels, self._metrics)
+            loss, readings = self._calc_loss(outputs, labels)
+            self._metrics = readings
 
             # backward + optimize only if in training phase
             if self._mode == 'train':
@@ -165,7 +184,6 @@ class TorchBasedApproach:
     def _calc_metrics(self):
         outputs = ['\n']
         for k in self._metrics.keys():
-            # outputs.append("{}: {:4f}".format(k, self._metrics[k] / self._epoch_samples))
             outputs.append("{}: {:4f}".format(k, self._metrics[k]))
 
         metrics = "{}: {}".format(self._mode, ", ".join(outputs))
@@ -181,6 +199,9 @@ class TorchBasedApproach:
 
         for x, y_true in data_gen:
             y_pred = self.predict(x)
+
+            if self._sets['mask_is_singlechannel']:
+                y_true = blowup_mask_torch(y_true, n_class=self._sets['classes_num'])
 
             # TODO: do computations directly on GPU
             y_pred = y_pred.detach().cpu().numpy()
@@ -202,7 +223,7 @@ class TorchBasedApproach:
 
             precisions.append(np.mean(P))
             recalls.append(np.mean(R))
-            ious.append(IoU)
+            ious.append(np.mean(IoU))
 
         eval_mar = np.mean(recalls)
         eval_map = np.mean(precisions)
