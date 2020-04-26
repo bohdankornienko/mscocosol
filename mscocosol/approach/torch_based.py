@@ -201,7 +201,7 @@ class TorchBasedApproach:
             y_pred = self.predict(x)
 
             if self._sets['mask_is_singlechannel']:
-                y_true = blowup_mask_torch(y_true, n_class=self._sets['classes_num'])
+                y_true = blowup_mask_torch(y_true, n_class=self._sets['classes_num'], mask_shape=self._sets['target_img_size'])
 
             # TODO: do computations directly on GPU
             y_pred = y_pred.detach().cpu().numpy()
