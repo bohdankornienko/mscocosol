@@ -36,7 +36,7 @@ class SingleChannelApproach(TorchBasedApproach):
             pred = self._model(inputs)
 
             pred = pred.exp().detach()  # exp of the log prob = probability.
-            _, mask = torch.max(pred, 1)  # index of the class with maximum probability.
+            mask = torch.argmax(pred, 1)  # index of the class with maximum probability.
             self._pred = pred.cpu().numpy()
             self._mask = mask.cpu().numpy()
 
